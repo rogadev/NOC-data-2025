@@ -37,15 +37,16 @@ model Program {
   duration          String?
   credential        Credential
   programAreaNid    Int
-  programArea       ProgramArea @relation(fields: [programAreaNid], references: [nid])
+  programArea       ProgramArea @relation(fields: [programAreaNid], references: [id])
   viuSearchKeywords String?
   nocSearchKeywords String[]
   knownNocGroups    String[]
 }
 
 model ProgramArea {
-  nid      Int       @id
-  title    String
+  id       Int       @id @default(autoincrement())
+  nid      Int
+  title    String    @unique
   programs Program[]
 }
 

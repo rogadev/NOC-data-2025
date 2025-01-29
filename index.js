@@ -8,20 +8,31 @@ const prisma = new PrismaClient()
 const app = express()
 const PORT = process.env.PORT || 3000
 
+// Batch Size for processing data (max 20 recommended)
 const BATCH_SIZE = 20
 
-const includeOutlooks = false
-const includePrograms = true
-const includeUnitGroups = true
+// Seed Options
+const SEED_OUTLOOKS = true
+const SEED_PROGRAMS = true
+const SEED_UNIT_GROUPS = true
+
+// Log File Options
+const LOG_ERRORS = false
+const LOG_DUPLICATES = false
 
 // Counters
 let createdCount = 0
 let duplicateCount = 0
 
 // Write streams for logging
-const errorLog = fs.createWriteStream('errors.txt', { flags: 'a' })
-const duplicateLog = fs.createWriteStream('duplicates.txt', { flags: 'a' })
+const errorLog = LOG_ERRORS
+  ? fs.createWriteStream('errors.txt', { flags: 'a' })
+  : null
+const duplicateLog = LOG_DUPLICATES
+  ? fs.createWriteStream('duplicates.txt', { flags: 'a' })
+  : null
 
+// Replaces previous line of progress with updated progress
 function logProgress() {
   process.stdout.clearLine()
   process.stdout.cursorTo(0)
@@ -30,6 +41,12 @@ function logProgress() {
   )
 }
 
+/**
+ * Attempts to create a record in the database while handling potential duplicates and errors
+ * @param {PrismaClient[keyof PrismaClient]} model - The Prisma model to create the record in
+ * @param {Object} data - The data to be inserted
+ * @param {string} idLabel - Identifier label for logging purposes
+ */
 async function safeCreate(model, data, idLabel) {
   try {
     await model.create({ data })
@@ -37,25 +54,40 @@ async function safeCreate(model, data, idLabel) {
   } catch (error) {
     if (error.code === 'P2002') {
       duplicateCount++
-      duplicateLog.write(`Duplicate on ${idLabel}: ${JSON.stringify(data)}\n`)
+      if (LOG_DUPLICATES && duplicateLog) {
+        duplicateLog.write(`Duplicate on ${idLabel}: ${JSON.stringify(data)}\n`)
+      }
     } else {
-      errorLog.write(`Error on ${idLabel}: ${error.message}\n`)
+      if (LOG_ERRORS && errorLog) {
+        errorLog.write(`Error on ${idLabel}: ${error.message}\n`)
+      }
     }
   } finally {
     logProgress()
   }
 }
 
-// For deletes, we’ll track how many we’ve deleted in this route alone.
+/**
+ * Safely deletes a record from the database with error handling
+ * @param {PrismaClient[keyof PrismaClient]} model - The Prisma model to delete from
+ * @param {Object} where - The where clause for identifying the record to delete
+ * @param {string} label - Identifier label for logging purposes
+ */
 async function safeDelete(model, where, label) {
   try {
     await model.delete({ where })
   } catch (error) {
-    errorLog.write(`Error deleting ${label}: ${error.message}\n`)
+    if (LOG_ERRORS && errorLog) {
+      errorLog.write(`Error deleting ${label}: ${error.message}\n`)
+    }
   }
 }
 
-// Helper to run any operation in chunks
+/**
+ * Processes an array of data in chunks to prevent overwhelming the database
+ * @param {Array} dataArray - Array of items to process
+ * @param {Function} handler - Async function to process each item
+ */
 async function processInChunks(dataArray, handler) {
   for (let i = 0; i < dataArray.length; i += BATCH_SIZE) {
     const chunk = dataArray.slice(i, i + BATCH_SIZE)
@@ -63,7 +95,11 @@ async function processInChunks(dataArray, handler) {
   }
 }
 
-// Logging progress for deletions
+/**
+ * Updates the console output to show delete operation progress
+ * @param {number} deletedCount - Number of records deleted so far
+ * @param {number} totalToDelete - Total number of records to delete
+ */
 function logDeleteProgress(deletedCount, totalToDelete) {
   const percent = Math.floor((deletedCount / totalToDelete) * 100)
   process.stdout.clearLine()
@@ -73,10 +109,14 @@ function logDeleteProgress(deletedCount, totalToDelete) {
   )
 }
 
+/**
+ * Main database seeding function that processes outlook data, VIU programs,
+ * and unit groups based on configuration flags
+ */
 async function seedDatabase() {
   // 1) Process outlooks and region data
-  if (includeOutlooks) {
-    console.log('Seeding Outlooks...\n')
+  if (SEED_OUTLOOKS) {
+    console.log('\nSeeding Outlooks...')
     const filePath = path.join(__dirname, 'data/2024-2026-3-year-outlooks.xlsx')
     const workbook = xlsx.readFile(filePath)
     const sheetName = workbook.SheetNames[0]
@@ -121,47 +161,75 @@ async function seedDatabase() {
   }
 
   // 2) Seed VIU programs
-  if (includePrograms) {
-    console.log('\nSeeding Programs...')
+  if (SEED_PROGRAMS) {
+    console.log('\nSeeding Program Areas & Programs...')
+
     const programsFile = path.join(__dirname, 'data/viu_programs.json')
 
     if (fs.existsSync(programsFile)) {
       const programsData = JSON.parse(fs.readFileSync(programsFile, 'utf8'))
 
-      await processInChunks(programsData, async (p) => {
-        // Create/ensure the program area
-        const programAreaData = {
-          nid: p.program_area.nid,
-          title: p.program_area.title,
+      // Extract unique program areas
+      const programAreas = programsData.reduce((acc, program) => {
+        const { nid, title } = program.program_area
+        if (!acc.some((area) => area.nid === nid)) {
+          acc.push({ nid, title })
         }
-        await safeCreate(
-          prisma.programArea,
-          programAreaData,
-          `programAreaNid=${programAreaData.nid}`
-        )
+        return acc
+      }, [])
 
-        // Create/ensure the program
-        const programData = {
-          nid: p.nid,
-          title: p.title,
-          duration: p.duration || null,
-          credential: p.credential, // Must match the enum: Certificate, Diploma, Degree
-          programAreaNid: p.program_area.nid,
-          viuSearchKeywords: p.viu_search_keywords || null,
-          nocSearchKeywords: p.noc_search_keywords || [],
-          knownNocGroups: p.known_noc_groups || [],
+      // Insert Program Areas
+      await processInChunks(programAreas, async (area) => {
+        await safeCreate(prisma.programArea, area, `ProgramArea: ${area.title}`)
+      })
+
+      // Fetch all Program Areas from DB to ensure they exist before inserting Programs
+      const existingProgramAreas = await prisma.programArea.findMany()
+      const programAreaMap = new Map(
+        existingProgramAreas.map((pa) => [pa.nid, pa.id])
+      )
+
+      // Insert Programs
+      await processInChunks(programsData, async (program) => {
+        const programAreaNid = program.program_area.nid
+        const foundProgramAreaId = programAreaMap.get(programAreaNid)
+
+        if (!foundProgramAreaId) {
+          console.error(
+            `Missing Program Area for: ${program.title} (NID: ${programAreaNid})`
+          )
+          if (LOG_ERRORS && errorLog) {
+            errorLog.write(
+              `Missing Program Area for: ${program.title} (NID: ${programAreaNid})\n`
+            )
+          }
+          return
         }
+
         await safeCreate(
           prisma.program,
-          programData,
-          `programNid=${programData.nid}`
+          {
+            nid: program.nid,
+            title: program.title,
+            duration: program.duration || null,
+            credential: program.credential,
+            programAreaNid: foundProgramAreaId, // Ensure FK relation exists
+            viuSearchKeywords: program.viu_search_keywords || null,
+            nocSearchKeywords: program.noc_search_keywords || [],
+            knownNocGroups: program.known_noc_groups || [],
+          },
+          `Program: ${program.title}`
         )
       })
+
+      console.log('\nFinished seeding Programs & Program Areas.')
+    } else {
+      console.log(`File not found: ${programsFile}`)
     }
   }
 
   // 3) Seed Unit Groups
-  if (includeUnitGroups) {
+  if (SEED_UNIT_GROUPS) {
     console.log('\nSeeding Unit Groups...')
     const unitGroupsFile = path.join(__dirname, 'data/unit_groups.json')
 
@@ -205,8 +273,12 @@ async function seedDatabase() {
 
   console.log('\nSeeding complete!')
   console.log(`Total Created: ${createdCount}, Duplicates: ${duplicateCount}`)
-  errorLog.end()
-  duplicateLog.end()
+  if (LOG_ERRORS && errorLog) {
+    errorLog.end()
+  }
+  if (LOG_DUPLICATES && duplicateLog) {
+    duplicateLog.end()
+  }
   await prisma.$disconnect()
 }
 
@@ -256,7 +328,9 @@ app.get('/clean', async (req, res) => {
 
     return res.send('Cleanup complete!')
   } catch (error) {
-    errorLog.write(`Error in /clean route: ${error.message}\n`)
+    if (LOG_ERRORS && errorLog) {
+      errorLog.write(`Error in /clean route: ${error.message}\n`)
+    }
     console.error(error)
     return res.status(500).send('Error cleaning up short noc entries.')
   }
