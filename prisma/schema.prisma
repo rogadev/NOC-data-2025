@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Credential {
+  Certificate
+  Degree
+  Diploma
+}
+
+model Outlook {
+  id                 Int      @id @default(autoincrement())
+  noc                String //fk
+  economicRegionCode String //fk
+  title              String
+  outlook            String
+  trends             String
+  releaseDate        DateTime
+  province           String
+  lang               String   @default("EN")
+
+  unitGroup      UnitGroup      @relation(fields: [noc], references: [noc])
+  economicRegion EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
+
+  @@unique([noc, economicRegionCode]) // Ensures each (noc, economicRegionCode) pair is unique
+}
+
+model Program {
+  nid               Int         @id
+  title             String
+  duration          String?
+  credential        Credential
+  programAreaNid    Int
+  programArea       ProgramArea @relation(fields: [programAreaNid], references: [nid])
+  viuSearchKeywords String?
+  nocSearchKeywords String[]
+  knownNocGroups    String[]
+}
+
+model ProgramArea {
+  nid      Int       @id
+  title    String
+  programs Program[]
+}
+
+model UnitGroup {
+  noc        String           @id
+  occupation String
+  sections   SectionsEntity[] @relation("SectionsEntity")
+  outlook    Outlook[]
+}
+
+model SectionsEntity {
+  id        Int       @id @default(autoincrement())
+  noc       String
+  title     String
+  items     String[]
+  unitGroup UnitGroup @relation("SectionsEntity", fields: [noc], references: [noc])
+}
+
+model EconomicRegion {
+  economicRegionCode String    @id
+  economicRegionName String
+  outlooks           Outlook[]
+}
