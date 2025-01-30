@@ -17,7 +17,7 @@ const SEED_PROGRAMS = true
 const SEED_UNIT_GROUPS = true
 
 // Log File Options
-const LOG_ERRORS = false
+const LOG_ERRORS = true
 const LOG_DUPLICATES = false
 
 // Counters
@@ -55,7 +55,14 @@ async function safeCreate(model, data, idLabel) {
     if (error.code === 'P2002') {
       duplicateCount++
       if (LOG_DUPLICATES && duplicateLog) {
-        duplicateLog.write(`Duplicate on ${idLabel}: ${JSON.stringify(data)}\n`)
+        // Enhanced duplicate logging
+        const uniqueFields = error.meta?.target || []
+        duplicateLog.write(
+          `Duplicate on ${idLabel}:\n` +
+            `Fields causing conflict: ${uniqueFields.join(', ')}\n` +
+            `Data: ${JSON.stringify(data, null, 2)}\n` +
+            '----------------------------------------\n'
+        )
       }
     } else {
       if (LOG_ERRORS && errorLog) {
