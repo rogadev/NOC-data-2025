@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client')
 const xlsx = require('xlsx')
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 
 const prisma = new PrismaClient()
 const app = express()
@@ -13,16 +14,19 @@ const BATCH_SIZE = 20
 
 // Seed Options
 const SEED_OUTLOOKS = true
-const SEED_PROGRAMS = true
-const SEED_UNIT_GROUPS = true
+const SEED_PROGRAMS = false
+const SEED_UNIT_GROUPS = false
 
 // Log File Options
 const LOG_ERRORS = true
-const LOG_DUPLICATES = false
+const LOG_DUPLICATES = true
 
 // Counters
 let createdCount = 0
 let duplicateCount = 0
+
+// Cache for economic regions
+let economicRegionsCache = new Map()
 
 // Write streams for logging
 const errorLog = LOG_ERRORS
@@ -32,7 +36,10 @@ const duplicateLog = LOG_DUPLICATES
   ? fs.createWriteStream('duplicates.txt', { flags: 'a' })
   : null
 
-// Replaces previous line of progress with updated progress
+/**
+ * Clears the current console line and displays a progress update showing
+ * the number of items created and duplicate items encountered.
+ */
 function logProgress() {
   process.stdout.clearLine()
   process.stdout.cursorTo(0)
@@ -117,13 +124,122 @@ function logDeleteProgress(deletedCount, totalToDelete) {
 }
 
 /**
+ * Generates a MD5 hash of the given value.
+ *
+ * @param {string} value - The input string to hash.
+ * @returns {string} The hashed output in hexadecimal format.
+ */
+function createHash(value) {
+  return crypto.createHash('md5').update(value).digest('hex')
+}
+
+/**
+ * Initializes the economic regions cache from the database
+ */
+async function initializeRegionsCache() {
+  console.log('Initializing economic regions cache...')
+  const regions = await prisma.economicRegion.findMany()
+  regions.forEach((region) => {
+    economicRegionsCache.set(region.economicRegionCode, region)
+  })
+  console.log(`Cached ${economicRegionsCache.size} economic regions`)
+}
+
+/**
+ * Checks if a region exists in the cache and creates it if it doesn't
+ * @param {Object} regionData - The region data to check/create
+ * @returns {Promise<void>}
+ */
+async function ensureRegionExists(regionData) {
+  const { economicRegionCode } = regionData
+
+  if (!economicRegionsCache.has(economicRegionCode)) {
+    try {
+      const newRegion = await prisma.economicRegion.create({ data: regionData })
+      economicRegionsCache.set(economicRegionCode, newRegion)
+      createdCount++
+    } catch (error) {
+      if (error.code === 'P2002') {
+        // If we get here, another process might have created the region
+        // Let's fetch and cache it
+        const existingRegion = await prisma.economicRegion.findUnique({
+          where: { economicRegionCode },
+        })
+        if (existingRegion) {
+          economicRegionsCache.set(economicRegionCode, existingRegion)
+        }
+        duplicateCount++
+        if (LOG_DUPLICATES && duplicateLog) {
+          const uniqueFields = error.meta?.target || []
+          duplicateLog.write(
+            `Duplicate region:\n` +
+              `Fields causing conflict: ${uniqueFields.join(', ')}\n` +
+              `Data: ${JSON.stringify(regionData, null, 2)}\n` +
+              '----------------------------------------\n'
+          )
+        }
+      } else {
+        if (LOG_ERRORS && errorLog) {
+          errorLog.write(`Error creating region: ${error.message}\n`)
+        }
+      }
+    }
+  }
+}
+
+/**
  * Main database seeding function that processes outlook data, VIU programs,
  * and unit groups based on configuration flags
  */
 async function seedDatabase() {
-  // 1) Process outlooks and region data
+  // 1) Seed Unit Groups
+  if (SEED_UNIT_GROUPS) {
+    console.log('\n\nSeeding Unit Groups...')
+    const unitGroupsFile = path.join(__dirname, 'data/unit_groups.json')
+
+    if (fs.existsSync(unitGroupsFile)) {
+      const unitGroupsData = JSON.parse(fs.readFileSync(unitGroupsFile, 'utf8'))
+
+      await processInChunks(unitGroupsData, async (unitGroup) => {
+        const { noc_number, occupation, sections } = unitGroup
+
+        // Insert UnitGroup
+        await safeCreate(
+          prisma.unitGroup,
+          {
+            noc: noc_number,
+            occupation,
+          },
+          `noc=${noc_number}`
+        )
+
+        if (sections && sections.length > 0) {
+          // Insert Sections related to the UnitGroup
+          await processInChunks(sections, async (section) => {
+            const { title, items } = section
+
+            await safeCreate(
+              prisma.sectionsEntity,
+              {
+                noc: noc_number,
+                title,
+                items: items || [], // Ensure items is an array
+              },
+              `sectionTitle=${title} for noc=${noc_number}`
+            )
+          })
+        }
+      })
+    } else {
+      console.log(`File not found: ${unitGroupsFile}`)
+    }
+  }
+
+  // 2) Process outlooks and region data
   if (SEED_OUTLOOKS) {
-    console.log('\nSeeding Outlooks...')
+    await initializeRegionsCache()
+
+    console.log('\n\nSeeding Outlooks...')
     const filePath = path.join(__dirname, 'data/2024-2026-3-year-outlooks.xlsx')
     const workbook = xlsx.readFile(filePath)
     const sheetName = workbook.SheetNames[0]
@@ -136,20 +252,17 @@ async function seedDatabase() {
       const title = row['NOC Title']
       const outlook = row['Outlook']
       const trends = row['Employment Trends']
+      const trendsHash = createHash(row['Employment Trends'])
       const releaseDate = new Date(row['Release Date'])
       const province = row['Province']
       const lang = row['LANG']
 
-      await safeCreate(
-        prisma.economicRegion,
-        { economicRegionCode, economicRegionName },
-        `economicRegionCode=${economicRegionCode}`
-      )
-      await safeCreate(
-        prisma.unitGroup,
-        { noc, occupation: title },
-        `noc=${noc}`
-      )
+      // Use the cache-aware function instead of direct creation
+      await ensureRegionExists({
+        economicRegionCode,
+        economicRegionName,
+      })
+
       await safeCreate(
         prisma.outlook,
         {
@@ -158,6 +271,7 @@ async function seedDatabase() {
           title,
           outlook,
           trends,
+          trendsHash,
           releaseDate,
           province,
           lang,
@@ -167,9 +281,9 @@ async function seedDatabase() {
     })
   }
 
-  // 2) Seed VIU programs
+  // 3) Seed VIU programs
   if (SEED_PROGRAMS) {
-    console.log('\nSeeding Program Areas & Programs...')
+    console.log('\n\nSeeding Program Areas & Programs...')
 
     const programsFile = path.join(__dirname, 'data/viu_programs.json')
 
@@ -235,50 +349,7 @@ async function seedDatabase() {
     }
   }
 
-  // 3) Seed Unit Groups
-  if (SEED_UNIT_GROUPS) {
-    console.log('\nSeeding Unit Groups...')
-    const unitGroupsFile = path.join(__dirname, 'data/unit_groups.json')
-
-    if (fs.existsSync(unitGroupsFile)) {
-      const unitGroupsData = JSON.parse(fs.readFileSync(unitGroupsFile, 'utf8'))
-
-      await processInChunks(unitGroupsData, async (unitGroup) => {
-        const { noc_number, occupation, sections } = unitGroup
-
-        // Insert UnitGroup
-        await safeCreate(
-          prisma.unitGroup,
-          {
-            noc: noc_number,
-            occupation,
-          },
-          `noc=${noc_number}`
-        )
-
-        if (sections && sections.length > 0) {
-          // Insert Sections related to the UnitGroup
-          await processInChunks(sections, async (section) => {
-            const { title, items } = section
-
-            await safeCreate(
-              prisma.sectionsEntity,
-              {
-                noc: noc_number,
-                title,
-                items: items || [], // Ensure items is an array
-              },
-              `sectionTitle=${title} for noc=${noc_number}`
-            )
-          })
-        }
-      })
-    } else {
-      console.log(`File not found: ${unitGroupsFile}`)
-    }
-  }
-
-  console.log('\nSeeding complete!')
+  console.log('\n\nSeeding complete!')
   console.log(`Total Created: ${createdCount}, Duplicates: ${duplicateCount}`)
   if (LOG_ERRORS && errorLog) {
     errorLog.end()
