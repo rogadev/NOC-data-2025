@@ -28,7 +28,7 @@ model Outlook {
   unitGroup      UnitGroup      @relation(fields: [noc], references: [noc])
   economicRegion EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
 
-  @@unique([noc, economicRegionCode]) // Ensures each (noc, economicRegionCode) pair is unique
+  @@unique([noc, economicRegionCode, title, outlook, trends, releaseDate, province, lang])
 }
 
 model Program {
