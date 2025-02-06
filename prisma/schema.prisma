@@ -8,40 +8,34 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-enum Credential {
-  Certificate
-  Degree
-  Diploma
-}
-
 model Outlook {
-  id                 Int      @id @default(autoincrement())
-  noc                String //fk
-  economicRegionCode String //fk
+  id                 Int            @id @default(autoincrement())
+  noc                String
+  economicRegionCode String
   title              String
   outlook            String
   trends             String
   trendsHash         String
   releaseDate        DateTime
   province           String
-  lang               String   @default("EN")
-
-  unitGroup      UnitGroup      @relation(fields: [noc], references: [noc])
-  economicRegion EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
+  lang               String         @default("EN")
+  economicRegion     EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
+  unitGroup          UnitGroup      @relation(fields: [noc], references: [noc])
 
   @@unique([noc, economicRegionCode, lang, releaseDate, province, title, trendsHash, outlook])
 }
 
 model Program {
-  nid               Int         @id
+  nid               Int              @id
   title             String
   duration          String?
-  credential        Credential
-  programAreaNid    Int
-  programArea       ProgramArea @relation(fields: [programAreaNid], references: [id])
   viuSearchKeywords String?
   nocSearchKeywords String[]
   knownNocGroups    String[]
+  programAreaNid    Int
+  credential        Credential
+  programArea       ProgramArea      @relation(fields: [programAreaNid], references: [id])
+  ProgramOutlook    ProgramOutlook[]
 }
 
 model ProgramArea {
@@ -54,8 +48,8 @@ model ProgramArea {
 model UnitGroup {
   noc        String           @id
   occupation String
-  sections   SectionsEntity[] @relation("SectionsEntity")
   outlook    Outlook[]
+  sections   SectionsEntity[] @relation("SectionsEntity")
 }
 
 model SectionsEntity {
@@ -64,10 +58,28 @@ model SectionsEntity {
   title     String
   items     String[]
   unitGroup UnitGroup @relation("SectionsEntity", fields: [noc], references: [noc])
+
+  @@unique([noc, title])
 }
 
 model EconomicRegion {
   economicRegionCode String    @id
   economicRegionName String
   outlooks           Outlook[]
+}
+
+model ProgramOutlook {
+  id          Int      @id @default(autoincrement())
+  programId   Int
+  results     Json
+  processedAt DateTime @default(now())
+  Program     Program  @relation(fields: [programId], references: [nid])
+
+  @@index([programId])
+}
+
+enum Credential {
+  Certificate
+  Degree
+  Diploma
 }

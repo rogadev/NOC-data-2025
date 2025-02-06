@@ -13,13 +13,13 @@ const PORT = process.env.PORT || 3000
 const BATCH_SIZE = 20
 
 // Seed Options
-const SEED_OUTLOOKS = true
-const SEED_PROGRAMS = false
-const SEED_UNIT_GROUPS = false
+const SEED_OUTLOOKS = false
+const SEED_PROGRAMS = true
+const SEED_UNIT_GROUPS = true
 
 // Log File Options
 const LOG_ERRORS = true
-const LOG_DUPLICATES = true
+const LOG_DUPLICATES = false
 
 // Counters
 let createdCount = 0
@@ -247,6 +247,18 @@ async function seedDatabase() {
 
     await processInChunks(data, async (row) => {
       const noc = row['NOC_Code'].replace('NOC_', '').padStart(5, '0')
+
+      // First ensure the UnitGroup exists
+      await safeCreate(
+        prisma.unitGroup,
+        {
+          noc,
+          occupation: row['NOC Title'], // Using the NOC Title as occupation
+        },
+        `UnitGroup noc=${noc}`
+      )
+
+      // Then create the Outlook record
       const economicRegionCode = row['Economic Region Code'].toString()
       const economicRegionName = row['Economic Region Name']
       const title = row['NOC Title']
@@ -257,7 +269,6 @@ async function seedDatabase() {
       const province = row['Province']
       const lang = row['LANG']
 
-      // Use the cache-aware function instead of direct creation
       await ensureRegionExists({
         economicRegionCode,
         economicRegionName,
