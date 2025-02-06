@@ -13,9 +13,9 @@ const PORT = process.env.PORT || 3000
 const BATCH_SIZE = 20
 
 // Seed Options
-const SEED_OUTLOOKS = false
-const SEED_PROGRAMS = true
-const SEED_UNIT_GROUPS = true
+const SEED_OUTLOOKS = true
+const SEED_PROGRAMS = false
+const SEED_UNIT_GROUPS = false
 
 // Log File Options
 const LOG_ERRORS = true
