@@ -138,11 +138,21 @@ function createHash(value) {
  */
 async function initializeRegionsCache() {
   console.log('Initializing economic regions cache...')
-  const regions = await prisma.economicRegion.findMany()
-  regions.forEach((region) => {
-    economicRegionsCache.set(region.economicRegionCode, region)
-  })
-  console.log(`Cached ${economicRegionsCache.size} economic regions`)
+  try {
+    const regions = await safeDbOperation(
+      () => prisma.economicRegion.findMany(),
+      'initialize regions cache'
+    )
+    regions.forEach((region) => {
+      economicRegionsCache.set(region.economicRegionCode, region)
+    })
+    console.log(`Cached ${economicRegionsCache.size} economic regions`)
+  } catch (error) {
+    console.error('Failed to initialize regions cache:', error.message)
+    // Return with empty cache rather than failing
+    economicRegionsCache = new Map()
+    console.log('Proceeding with empty regions cache')
+  }
 }
 
 /**
@@ -155,19 +165,34 @@ async function ensureRegionExists(regionData) {
 
   if (!economicRegionsCache.has(economicRegionCode)) {
     try {
-      const newRegion = await prisma.economicRegion.create({ data: regionData })
+      const newRegion = await safeDbOperation(
+        () => prisma.economicRegion.create({ data: regionData }),
+        `create region ${economicRegionCode}`
+      )
       economicRegionsCache.set(economicRegionCode, newRegion)
       createdCount++
     } catch (error) {
       if (error.code === 'P2002') {
         // If we get here, another process might have created the region
         // Let's fetch and cache it
-        const existingRegion = await prisma.economicRegion.findUnique({
-          where: { economicRegionCode },
-        })
-        if (existingRegion) {
-          economicRegionsCache.set(economicRegionCode, existingRegion)
+        try {
+          const existingRegion = await safeDbOperation(
+            () =>
+              prisma.economicRegion.findUnique({
+                where: { economicRegionCode },
+              }),
+            `fetch existing region ${economicRegionCode}`
+          )
+          if (existingRegion) {
+            economicRegionsCache.set(economicRegionCode, existingRegion)
+          }
+        } catch (fetchError) {
+          console.error(
+            `Failed to fetch existing region ${economicRegionCode}:`,
+            fetchError.message
+          )
         }
+
         duplicateCount++
         if (LOG_DUPLICATES && duplicateLog) {
           const uniqueFields = error.meta?.target || []
@@ -184,6 +209,47 @@ async function ensureRegionExists(regionData) {
         }
       }
     }
+  }
+}
+
+/**
+ * Handles database transaction errors by reconnecting if needed
+ */
+async function handleDatabaseError(error, operation) {
+  if (error.message && error.message.includes('transaction is aborted')) {
+    console.log(`Transaction aborted during ${operation}, reconnecting...`)
+    await prisma.$disconnect()
+    await prisma.$connect()
+  }
+  throw error
+}
+
+/**
+ * Safely executes a database operation with automatic retry on transaction errors
+ */
+async function safeDbOperation(operation, context = 'database operation') {
+  try {
+    return await operation()
+  } catch (error) {
+    if (error.message && error.message.includes('transaction is aborted')) {
+      console.log(
+        `Transaction aborted during ${context}, resetting connection...`
+      )
+      await prisma.$disconnect()
+      await prisma.$connect()
+
+      // Retry once after reconnection
+      try {
+        return await operation()
+      } catch (retryError) {
+        console.error(
+          `Failed to execute ${context} after retry:`,
+          retryError.message
+        )
+        throw retryError
+      }
+    }
+    throw error
   }
 }
 
@@ -376,8 +442,18 @@ app.get('/seed', async (req, res) => {
     await seedDatabase()
     res.send('Database seeded successfully!')
   } catch (error) {
-    console.error(error)
-    res.status(500).send('Error seeding database')
+    console.error('Error during database seeding:', error)
+
+    // Try to cleanup the connection
+    try {
+      await prisma.$disconnect()
+      await prisma.$connect()
+      console.log('Database connection reset after error')
+    } catch (disconnectError) {
+      console.error('Failed to reset database connection:', disconnectError)
+    }
+
+    res.status(500).send(`Error seeding database: ${error.message}`)
   }
 })
 
