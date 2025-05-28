@@ -8,70 +8,90 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Outlook {
-  id                 Int            @id @default(autoincrement())
-  noc                String
-  economicRegionCode String
-  title              String
-  outlook            String
-  trends             String
-  trendsHash         String
-  releaseDate        DateTime
-  province           String
-  lang               String         @default("EN")
-  programNid         Int?
-  economicRegion     EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
-  unitGroup          UnitGroup      @relation(fields: [noc], references: [noc])
-  Program            Program?       @relation(fields: [programNid], references: [nid])
-
-  @@unique([noc, economicRegionCode, lang, releaseDate, province, title, trendsHash, outlook])
-}
-
-model Program {
-  nid               Int         @id
-  title             String
-  duration          String?
-  viuSearchKeywords String?
-  nocSearchKeywords String[]
-  knownNocGroups    String[]
-  programAreaNid    Int
-  credential        Credential
-  Outlook           Outlook[]
-  programArea       ProgramArea @relation(fields: [programAreaNid], references: [id])
-}
-
+// Program Areas (e.g., "Arts, Humanities and Social Sciences", "Business and Management")
 model ProgramArea {
   id       Int       @id @default(autoincrement())
-  nid      Int
+  nid      Int       @unique // Original VIU nid
   title    String    @unique
   programs Program[]
 }
 
-model UnitGroup {
-  noc        String           @id
-  occupation String
-  outlook    Outlook[]
-  sections   SectionsEntity[] @relation("SectionsEntity")
+// VIU Programs/Credentials
+model Program {
+  id                Int              @id @default(autoincrement())
+  nid               Int              @unique // Original VIU nid
+  title             String
+  duration          String? // e.g., "Bachelor's", null for certificates
+  credential        CredentialType
+  viuSearchKeywords String?
+  nocSearchKeywords String[]
+  knownNocGroups    String[] // NOC codes that are known to relate to this program
+  programAreaId     Int
+  programArea       ProgramArea      @relation(fields: [programAreaId], references: [id])
+  programNocLinks   ProgramNocLink[] // Many-to-many relationship with NOC codes
 }
 
-model SectionsEntity {
-  id        Int       @id @default(autoincrement())
-  noc       String
-  title     String
-  items     String[]
-  unitGroup UnitGroup @relation("SectionsEntity", fields: [noc], references: [noc])
-
-  @@unique([noc, title])
+// NOC Unit Groups (all NOC codes and their details)
+model NocUnitGroup {
+  id              Int              @id @default(autoincrement())
+  nocCode         String           @unique // e.g., "00010"
+  occupation      String // Job title
+  sections        NocSection[]
+  outlooks        Outlook[]
+  programNocLinks ProgramNocLink[] // Many-to-many relationship with programs
 }
 
+// Sections within NOC codes (e.g., "Main duties", "Employment requirements")
+model NocSection {
+  id           Int          @id @default(autoincrement())
+  nocCode      String
+  title        String // e.g., "Main duties", "Employment requirements"
+  items        String[] // Array of strings for the section content
+  nocUnitGroup NocUnitGroup @relation(fields: [nocCode], references: [nocCode], onDelete: Cascade)
+
+  @@unique([nocCode, title])
+}
+
+// Economic Regions for outlook data
 model EconomicRegion {
-  economicRegionCode String    @id
-  economicRegionName String
+  id                 Int       @id @default(autoincrement())
+  economicRegionCode String    @unique // e.g., "1000", "1010"
+  economicRegionName String? // Name of the region (if available)
+  province           String // Province code (e.g., "NL", "PE", "NS")
   outlooks           Outlook[]
 }
 
-enum Credential {
+// 3-year employment outlooks
+model Outlook {
+  id                 Int            @id @default(autoincrement())
+  nocCode            String
+  economicRegionCode String
+  outlook            String // The actual outlook value
+  employmentTrends   String? // Employment trends data
+  releaseDate        DateTime
+  province           String // Province code
+  language           String         @default("EN")
+  nocUnitGroup       NocUnitGroup   @relation(fields: [nocCode], references: [nocCode])
+  economicRegion     EconomicRegion @relation(fields: [economicRegionCode], references: [economicRegionCode])
+
+  @@unique([nocCode, economicRegionCode, province, releaseDate, language])
+}
+
+// Many-to-many relationship between Programs and NOC codes
+model ProgramNocLink {
+  id           Int          @id @default(autoincrement())
+  programId    Int
+  nocCode      String
+  isKnown      Boolean      @default(false) // true if from knownNocGroups, false if inferred
+  confidence   Float?       @default(1.0) // confidence score for the relationship
+  program      Program      @relation(fields: [programId], references: [id], onDelete: Cascade)
+  nocUnitGroup NocUnitGroup @relation(fields: [nocCode], references: [nocCode], onDelete: Cascade)
+
+  @@unique([programId, nocCode])
+}
+
+enum CredentialType {
   Certificate
-  Degree
   Diploma
+  Degree
 }

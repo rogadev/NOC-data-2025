@@ -1,563 +1,432 @@
-# NOC Data Seeding Application
+# NOC Data 2025 - Seeding Application
 
-A comprehensive Node.js application designed to seed databases with National Occupational Classification (NOC) data, employment outlook information, and Vancouver Island University (VIU) educational programs.
+A robust Node.js application for seeding National Occupational Classification (NOC) data with VIU programs and employment outlooks into a PostgreSQL database using Prisma ORM.
 
-## 📋 Table of Contents
+## 🚀 Features
 
-- [Overview](#overview)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Database Setup](#database-setup)
-- [Data Files Required](#data-files-required)
-- [Configuration](#configuration)
-- [Environment Variables](#environment-variables)
-- [Usage](#usage)
-- [Architecture Overview](#architecture-overview)
-- [Troubleshooting](#troubleshooting)
-- [Development Notes](#development-notes)
+- **Modular Architecture**: Well-organized codebase with separation of concerns
+- **Intelligent Database Checking**: Automatically detects existing records and uses counts as skip values to prevent duplicates
+- **Robust Error Handling**: Comprehensive error handling with retry logic and graceful degradation
+- **Professional Logging**: Winston-based logging with file rotation and structured logs
+- **Environment Configuration**: Centralized configuration management with validation
+- **Database Optimization**: Supabase-optimized with connection pooling and rate limiting
+- **Progress Tracking**: Real-time progress monitoring with resume capability
+- **Code Quality**: ESLint and Prettier integration for consistent code style
+- **Batch Processing**: Efficient parallel batch processing with transaction support
+- **Health Monitoring**: Database health checks and performance metrics
 
-## 🎯 Overview
+## 📋 Prerequisites
 
-This application processes and imports large datasets related to Canadian employment and education data:
+- Node.js >= 16.0.0
+- npm >= 8.0.0
+- PostgreSQL database (Supabase recommended)
+- Environment variables configured (see [Configuration](#configuration))
 
-- **NOC Unit Groups**: Basic occupational categories from the National Occupational Classification system
-- **Employment Outlooks**: 3-year employment forecasts by region and occupation
-- **Economic Regions**: Geographic regions for employment data organization
-- **VIU Programs**: Educational programs from Vancouver Island University
-- **Program Areas**: Categories that group related educational programs
+## 🛠️ Installation
 
-### Key Features
+1. **Clone the repository**
 
-- ✅ **Batch Processing**: Handles large datasets efficiently without overwhelming the database
-- ✅ **Error Handling**: Comprehensive error logging and duplicate detection
-- ✅ **Configurable Operations**: Switch between seeding (adding data) and cleaning (removing bad data)
-- ✅ **Performance Optimization**: Caching system for frequently-accessed data
-- ✅ **Progress Tracking**: Real-time progress display during operations
-- ✅ **Database Safety**: Transaction handling and automatic reconnection
+   ```bash
+   git clone https://github.com/rogadev/NOC-data-2025.git
+   cd NOC-data-2025
+   ```
 
-## 🛠 Prerequisites
+2. **Install dependencies**
 
-Before setting up this application, ensure you have:
+   ```bash
+   npm install
+   ```
 
-### Required Software
+3. **Set up environment variables**
 
-- **Node.js** (version 14.x or higher)
-- **npm** (comes with Node.js)
-- **Database**: PostgreSQL, MySQL, SQLite, or SQL Server (configured via Prisma)
-- **Git** (for cloning the repository)
+   ```bash
+   cp env.example .env
+   # Edit .env with your configuration
+   ```
 
-### Knowledge Requirements
+4. **Generate Prisma client**
 
-- Basic understanding of Node.js and npm
-- Familiarity with database concepts
-- Understanding of JSON and Excel file formats
+   ```bash
+   npm run db:generate
+   ```
 
-## 📦 Installation
+5. **Run database migrations**
+   ```bash
+   npm run db:migrate
+   ```
 
-### Step 1: Clone the Repository
+## 🔄 Automatic Resume Functionality
 
-```bash
-git clone <repository-url>
-cd NOC-data-2025
+The application now features **intelligent resume capability** that automatically detects existing records in your database and calculates where to resume seeding operations. This eliminates the need to manually set skip counts or worry about duplicate records.
+
+### How It Works
+
+1. **Database Analysis**: Before starting any seeding operation, the application counts existing records in each table
+2. **Smart Calculation**: Compares existing records with source data to determine optimal resume positions
+3. **Automatic Skip**: Automatically skips already-processed records and resumes from where it left off
+4. **Progress Display**: Shows exactly what will be skipped and what will be processed
+
+### Benefits
+
+- **Zero Configuration**: No need to manually set `SKIP_*` environment variables
+- **Fault Tolerant**: Safely resume after interruptions, crashes, or network issues
+- **Efficient**: Skip processing of existing records to save time and resources
+- **Transparent**: Clear logging shows exactly what's being skipped and why
+
+### Example Output
+
 ```
-
-### Step 2: Install Dependencies
-
-```bash
-npm install
-```
-
-### Step 3: Install Required Packages
-
-The application uses these main dependencies:
-
-```bash
-npm install express @prisma/client xlsx
-```
-
-**Dependency Breakdown:**
-
-- `express`: Web framework for the HTTP server
-- `@prisma/client`: Database ORM for type-safe database operations
-- `xlsx`: Excel file parser for reading employment outlook data
-
-## 🗄 Database Setup
-
-### Step 1: Configure Prisma
-
-1. **Create/Update `schema.prisma`** file with your database configuration:
-
-```prisma
-generator client {
-  provider = "prisma-client-js"
+🔍 Checking existing database records for smart resume...
+📊 Current database record counts: {
+  programAreas: 15,
+  programs: 245,
+  nocUnitGroups: 0,
+  outlooks: 0,
+  programNocLinks: 0
 }
+📍 Calculated resume positions:
+   SKIP_PROGRAM_AREAS: Skip first 15 records
+   SKIP_PROGRAMS: Skip first 245 records
+   SKIP_NOC_UNIT_GROUPS: Start from beginning
+   SKIP_OUTLOOKS: Start from beginning
+   SKIP_PROGRAM_NOC_LINKS: Start from beginning
 
-datasource db {
-  provider = "postgresql"  // or "mysql", "sqlite", "sqlserver"
-  url      = env("DATABASE_URL")
-}
-
-// Your data models go here...
+🔄 Resume mode activated - skipping existing records:
+   PROGRAM AREAS: Skipping 15 records
+   PROGRAMS: Skipping 245 records
 ```
-
-2. **Set up your database connection** in `.env` file:
-
-```env
-DATABASE_URL="postgresql://username:password@localhost:5432/noc_database"
-```
-
-### Step 2: Generate Prisma Client
-
-```bash
-npx prisma generate
-```
-
-### Step 3: Run Database Migrations
-
-```bash
-npx prisma db push
-# or if you have migration files:
-npx prisma migrate dev
-```
-
-### Expected Database Schema
-
-The application expects these main tables:
-
-- `UnitGroup`: NOC occupational categories
-- `SectionsEntity`: Detailed sections for each unit group
-- `EconomicRegion`: Geographic regions
-- `Outlook`: Employment outlook data
-- `ProgramArea`: Educational program categories
-- `Program`: Individual educational programs
-
-## 📁 Data Files Required
-
-Create a `data/` directory in your project root with these files:
-
-### Required Files Structure
-
-```
-data/
-├── unit_groups.json           # NOC unit groups and sections
-├── viu_programs.json         # VIU educational programs
-└── 2024-2026-3-year-outlooks.xlsx  # Employment outlook data
-```
-
-### File Format Specifications
-
-#### `unit_groups.json`
-
-```json
-[
-  {
-    "noc_number": "10010",
-    "occupation": "Financial managers",
-    "sections": [
-      {
-        "title": "Main duties",
-        "items": ["Duty 1", "Duty 2", "..."]
-      }
-    ]
-  }
-]
-```
-
-#### `viu_programs.json`
-
-```json
-[
-  {
-    "nid": "123",
-    "title": "Business Administration",
-    "duration": "2 years",
-    "credential": "Diploma",
-    "program_area": {
-      "nid": "456",
-      "title": "Business"
-    },
-    "viu_search_keywords": "business management",
-    "noc_search_keywords": ["management", "business"],
-    "known_noc_groups": ["10010", "10020"]
-  }
-]
-```
-
-#### `2024-2026-3-year-outlooks.xlsx`
-
-Excel file with columns:
-
-- `NOC_Code`: NOC classification code
-- `NOC Title`: Occupation title
-- `Economic Region Code`: Region identifier
-- `Economic Region Name`: Region name
-- `Outlook`: Employment outlook rating
-- `Employment Trends`: Detailed trends description
-- `Release Date`: Data release date
-- `Province`: Canadian province
-- `LANG`: Language (EN/FR)
 
 ## ⚙️ Configuration
 
-The application behavior is controlled by configuration flags at the top of `index.js`:
+### Environment Variables
 
-### Batch Processing
+Create a `.env` file in the root directory with the following variables:
 
-```javascript
-const BATCH_SIZE = 20 // Max 20 recommended
-```
-
-**What it does**: Controls how many records are processed simultaneously. Lower values are safer for database stability.
-
-### Data Seeding Options
-
-```javascript
-const SEED_OUTLOOKS = false // Employment outlook data from Excel
-const SEED_PROGRAMS = true // VIU educational programs from JSON
-const SEED_UNIT_GROUPS = true // NOC unit groups from JSON
-```
-
-**What it does**: Toggle which types of data to import. Useful for partial updates or testing.
-
-### Operation Mode
-
-```javascript
-const CLEAN = false // false = seed data, true = clean bad data
-```
-
-**What it does**:
-
-- `false`: Import/seed data into database
-- `true`: Remove problematic records (e.g., short NOC codes)
-
-### Logging Options
-
-```javascript
-const LOG_ERRORS = true // Log database errors to errors.txt
-const LOG_DUPLICATES = false // Log duplicate attempts to duplicates.txt
-```
-
-**What it does**: Control what information gets saved to log files for debugging.
-
-## 🌍 Environment Variables
-
-Create a `.env` file in your project root:
+#### Required Variables
 
 ```env
-# Database connection (REQUIRED)
-DATABASE_URL="postgresql://username:password@localhost:5432/noc_database"
-
-# Server port (OPTIONAL)
-PORT=3000
-
-# Additional Prisma options (OPTIONAL)
-PRISMA_CLI_QUERY_ENGINE_TYPE=binary
+DATABASE_URL="postgresql://username:password@localhost:5432/database_name"
+DIRECT_URL="postgresql://username:password@localhost:5432/database_name"
 ```
 
-### Environment Variable Details
-
-| Variable       | Required | Default | Description                         |
-| -------------- | -------- | ------- | ----------------------------------- |
-| `DATABASE_URL` | ✅ Yes   | None    | Complete database connection string |
-| `PORT`         | ❌ No    | 3000    | HTTP server port number             |
-
-### Database URL Format Examples
-
-**PostgreSQL:**
+#### Optional Variables (with defaults)
 
 ```env
-DATABASE_URL="postgresql://user:password@localhost:5432/database_name"
+# Application Environment
+NODE_ENV="development"
+LOG_LEVEL="info"
+
+# Supabase Configuration
+SUPABASE_PAID_TIER="false"
+
+# Seeding Configuration
+BATCH_SIZE="25"
+PARALLEL_BATCHES="2"
+TRANSACTION_BATCH_SIZE="50"
+BATCH_DELAY_MS="100"
+
+# Feature Flags
+LOG_ERRORS="true"
+ENABLE_PROGRESS_TRACKING="true"
+
+# Seeding Control Flags (disable sections)
+SEED_PROGRAM_AREAS="true"
+SEED_PROGRAMS="true"
+SEED_NOC_UNIT_GROUPS="true"
+SEED_OUTLOOKS="true"
+SEED_PROGRAM_NOC_LINKS="true"
+
+# File Paths
+PROGRESS_FILE="seeding-progress.json"
+DATA_DIR="data"
 ```
 
-**MySQL:**
+### Configuration Validation
 
-```env
-DATABASE_URL="mysql://user:password@localhost:3306/database_name"
-```
-
-**SQLite:**
-
-```env
-DATABASE_URL="file:./dev.db"
-```
+The application automatically validates configuration on startup and will throw descriptive errors for invalid settings.
 
 ## 🚀 Usage
 
-### Running the Application
-
-#### Seed Mode (Default)
-
-Import data into the database:
+### Basic Commands
 
 ```bash
-node index.js
+# Start seeding process
+npm start
+# or
+npm run seed
+
+# Test database check functionality
+npm run test-db-check
+
+# Check database record counts
+npm run count
+
+# View query examples
+npm run query
+
+# Check seeding progress
+npm run progress
+
+# Database operations
+npm run db:generate    # Generate Prisma client
+npm run db:migrate     # Run migrations
+npm run db:reset       # Reset database
+npm run db:studio      # Open Prisma Studio
 ```
 
-#### Clean Mode
+### Code Quality Commands
 
-Remove problematic records:
+```bash
+# Lint code
+npm run lint
 
-1. Change configuration in `index.js`:
-   ```javascript
-   const CLEAN = true
-   ```
-2. Run the application:
-   ```bash
-   node index.js
-   ```
+# Fix linting issues
+npm run lint:fix
 
-### Selective Data Import
+# Format code
+npm run format
 
-To import only specific types of data, modify the configuration flags:
-
-**Import only VIU programs:**
-
-```javascript
-const SEED_OUTLOOKS = false
-const SEED_PROGRAMS = true
-const SEED_UNIT_GROUPS = false
+# Check formatting
+npm run format:check
 ```
 
-**Import only employment outlooks:**
-
-```javascript
-const SEED_OUTLOOKS = true
-const SEED_PROGRAMS = false
-const SEED_UNIT_GROUPS = false
-```
-
-### Understanding the Output
-
-#### Progress Display
+## 📁 Project Structure
 
 ```
-Created: 1250 | Duplicates: 45
+NOC-data-2025/
+├── src/
+│   ├── config/
+│   │   ├── index.js           # Main configuration
+│   │   └── environment.js     # Environment variable management
+│   ├── seeders/
+│   │   ├── program-areas.js   # Program areas seeder
+│   │   ├── programs.js        # Programs seeder
+│   │   ├── noc-unit-groups.js # NOC unit groups seeder
+│   │   ├── outlooks.js        # Employment outlooks seeder
+│   │   └── program-noc-links.js # Program-NOC relationships
+│   ├── utils/
+│   │   ├── database.js        # Database utilities
+│   │   ├── logger.js          # Logging utilities
+│   │   ├── progress.js        # Progress tracking
+│   │   ├── batch-processor.js # Batch processing
+│   │   └── calculate-total.js # Record counting
+│   └── seed.js                # Main orchestrator
+├── scripts/
+│   ├── count-records.js       # Record counting script
+│   ├── query-examples.js      # Query examples
+│   └── check-progress.js      # Progress checking
+├── prisma/
+│   ├── schema.prisma          # Database schema
+│   └── migrations/            # Database migrations
+├── data/                      # Data files (JSON)
+├── logs/                      # Application logs
+├── .eslintrc.js              # ESLint configuration
+├── .prettierrc.js            # Prettier configuration
+├── env.example               # Environment variables template
+└── README.md                 # This file
 ```
 
-- **Created**: Successfully imported records
-- **Duplicates**: Records that already existed (skipped)
+## 🔧 Architecture
 
-#### Log Files
+### Core Components
 
-- `errors.txt`: Database errors and connection issues
-- `duplicates.txt`: Detailed information about duplicate records
+1. **Configuration Management** (`src/config/`)
 
-#### Success Indicators
+   - Environment variable validation and type conversion
+   - Centralized configuration with defaults
+   - Runtime configuration validation
 
-```
-🌱 SEED mode enabled - Starting database seeding...
-Seeding Unit Groups...
-Seeding Outlooks...
-Seeding Program Areas & Programs...
-Seeding complete!
-Total Created: 2500, Duplicates: 150
-🚀 Server running on port 3000
-Operation completed successfully!
-```
+2. **Database Layer** (`src/utils/database.js`)
 
-## 🏗 Architecture Overview
+   - Prisma client with optimized settings
+   - Connection pooling and health checks
+   - Retry logic and error categorization
+   - Transaction management
 
-### Data Processing Order
+3. **Logging System** (`src/utils/logger.js`)
 
-The application processes data in a specific order due to database relationships:
+   - Winston-based structured logging
+   - File rotation and log levels
+   - Specialized seeding operation logs
+   - Error tracking and debugging
 
-```
-1. Unit Groups     → Foundation NOC categories
-2. Economic Regions → Geographic regions
-3. Outlooks        → Employment data (references Unit Groups & Regions)
-4. Program Areas   → Educational categories
-5. Programs        → Individual programs (references Program Areas)
-```
+4. **Batch Processing** (`src/utils/batch-processor.js`)
 
-### Performance Optimizations
+   - Parallel batch processing
+   - Rate limiting and connection management
+   - Progress tracking and resume capability
+   - Error handling and fallback strategies
 
-#### Batch Processing
+5. **Seeders** (`src/seeders/`)
+   - Modular seeding operations
+   - Check-then-create approach
+   - Dependency order management
+   - Upsert operations for data integrity
 
-Large datasets are processed in chunks to prevent:
+### Design Patterns
 
-- Database connection timeouts
-- Memory overflow issues
-- Transaction deadlocks
+- **Dependency Injection**: Configuration and utilities injected into modules
+- **Error Handling**: Comprehensive error categorization and recovery
+- **Observer Pattern**: Progress tracking and logging
+- **Strategy Pattern**: Different processing strategies based on configuration
+- **Factory Pattern**: Database connection and client management
 
-#### Caching System
+## 📊 Performance Optimization
 
-- **Economic Regions**: Cached in memory for fast lookups
-- **Foreign Key References**: Pre-loaded to avoid repeated database queries
+### Database Optimizations
 
-#### Error Handling Strategy
+- Connection pooling with configurable limits
+- Batch processing with transaction support
+- Query optimization and slow query detection
+- Rate limiting for free tier compatibility
 
-1. **Graceful Degradation**: Continue processing even if some records fail
-2. **Automatic Retry**: Reconnect to database on transaction failures
-3. **Comprehensive Logging**: Track all issues for debugging
+### Memory Management
 
-### Database Design Principles
+- Streaming data processing for large datasets
+- Garbage collection friendly batch sizes
+- Progress tracking with minimal memory footprint
 
-#### Foreign Key Relationships
+### Monitoring
 
-```
-UnitGroup (NOC) ←── Outlook
-EconomicRegion ←── Outlook
-ProgramArea ←── Program
-UnitGroup ←── SectionsEntity
-```
+- Real-time progress tracking
+- Performance metrics and timing
+- Health checks and status monitoring
+- Detailed logging for debugging
 
-#### Duplicate Prevention
-
-- Unique constraints on key fields
-- Hash-based duplicate detection for content
-- Graceful handling of constraint violations
-
-## 🔧 Troubleshooting
+## 🔍 Troubleshooting
 
 ### Common Issues
 
-#### 1. Database Connection Errors
+1. **Database Connection Errors**
 
-**Error:** `Can't reach database server`
-**Solution:**
+   - Verify `DATABASE_URL` is correct
+   - Check network connectivity
+   - Ensure database is running
 
-1. Verify `DATABASE_URL` in `.env` file
-2. Ensure database server is running
-3. Check network connectivity
-4. Validate credentials
+2. **Rate Limiting**
 
-#### 2. File Not Found Errors
+   - Reduce `BATCH_SIZE` and `PARALLEL_BATCHES`
+   - Increase `BATCH_DELAY_MS`
+   - Set `SUPABASE_PAID_TIER=false` for free tier
 
-**Error:** `File not found: data/unit_groups.json`
-**Solution:**
+3. **Memory Issues**
 
-1. Create `data/` directory in project root
-2. Add required data files
-3. Verify file names match exactly
+   - Reduce batch sizes
+   - Check available system memory
+   - Monitor log files for memory warnings
 
-#### 3. Port Already in Use
+4. **Resume Capability**
+   - Resume functionality is now automatic based on existing database records
+   - Check `seeding-progress.json` for current state
+   - Review logs for last successful operation
+   - Use `SEED_*=false` environment variables to skip entire sections if needed
 
-**Error:** `Port 3000 is already in use`
-**Solution:**
+### Debugging
 
-1. The app automatically finds alternative ports
-2. Or set custom port: `PORT=3001 node index.js`
-3. Or kill process using the port
+1. **Enable Debug Logging**
 
-#### 4. Memory Issues with Large Files
-
-**Error:** `JavaScript heap out of memory`
-**Solution:**
-
-1. Reduce `BATCH_SIZE` (try 10 or 5)
-2. Process data types separately
-3. Increase Node.js memory: `node --max-old-space-size=4096 index.js`
-
-#### 5. Transaction Abort Errors
-
-**Error:** `Transaction is aborted`
-**Solution:**
-
-1. The app automatically handles this with reconnection
-2. Reduce batch size for stability
-3. Check database server performance
-
-### Debug Mode
-
-Enable detailed logging for troubleshooting:
-
-```javascript
-const LOG_ERRORS = true
-const LOG_DUPLICATES = true
-```
-
-Check log files:
-
-- `errors.txt`: Database and system errors
-- `duplicates.txt`: Duplicate record details
-
-### Performance Monitoring
-
-Monitor these metrics during operation:
-
-- **Created vs Duplicates ratio**: High duplicates may indicate data issues
-- **Processing speed**: Should maintain steady progress
-- **Memory usage**: Should remain stable with batch processing
-- **Database connections**: Should not accumulate
-
-## 👨‍💻 Development Notes
-
-### For Junior Developers
-
-#### Key Concepts to Understand
-
-1. **ORM (Object-Relational Mapping)**: Prisma translates JavaScript objects to SQL queries
-2. **Batch Processing**: Processing data in small chunks instead of all at once
-3. **Foreign Keys**: Database relationships that ensure data integrity
-4. **Caching**: Storing frequently-used data in memory for speed
-5. **Error Handling**: Managing failures gracefully without crashing
-
-#### Code Structure
-
-```
-index.js
-├── Configuration (lines 1-100)
-├── Utility Functions (lines 100-300)
-├── Database Operations (lines 300-600)
-├── Data Seeding Logic (lines 600-900)
-└── Server Startup (lines 900-1016)
-```
-
-#### Best Practices Demonstrated
-
-- **Error Boundaries**: Each operation wrapped in try-catch
-- **Resource Cleanup**: Database connections properly closed
-- **Progress Feedback**: User-friendly progress indicators
-- **Configurable Behavior**: Easy to modify without code changes
-- **Documentation**: Extensive inline comments explaining complex logic
-
-#### Safe Modification Guidelines
-
-1. **Always test with small datasets first**
-2. **Use batch processing for new data types**
-3. **Add error logging for new operations**
-4. **Maintain the data processing order**
-5. **Test cleanup operations carefully**
-
-### Adding New Data Types
-
-To add support for new data types:
-
-1. **Add configuration flag**:
-
-   ```javascript
-   const SEED_NEW_DATA = true
+   ```env
+   LOG_LEVEL="debug"
    ```
 
-2. **Create seeding function**:
+2. **Check Log Files**
 
-   ```javascript
-   if (SEED_NEW_DATA) {
-     console.log('Seeding new data...')
-     // Processing logic here
-   }
+   ```bash
+   tail -f logs/combined.log
+   tail -f logs/error.log
    ```
 
-3. **Use batch processing**:
-
-   ```javascript
-   await processInChunks(newData, async (item) => {
-     await safeCreate(prisma.newModel, item, `identifier`)
-   })
+3. **Database Health Check**
+   ```bash
+   npm run count
    ```
 
-4. **Add proper error handling and logging**
+## 🧪 Testing
 
-### Contributing
+### Manual Testing
 
-When contributing to this project:
+```bash
+# Test database connection
+npm run count
 
-1. Maintain the extensive commenting style
-2. Add configuration options for new features
-3. Include progress tracking for long operations
-4. Write comprehensive error handling
-5. Update this README with new features
+# Test with small dataset
+BATCH_SIZE=5 PARALLEL_BATCHES=1 npm start
+
+# Test with specific sections disabled
+SEED_OUTLOOKS=false npm start
+```
+
+### Code Quality Checks
+
+```bash
+# Run all quality checks
+npm run lint && npm run format:check
+```
+
+## 📈 Monitoring and Metrics
+
+### Progress Tracking
+
+- Real-time progress indicators
+- Percentage completion
+- Processing rate (records/second)
+- Estimated time remaining
+
+### Performance Metrics
+
+- Batch processing times
+- Database response times
+- Error rates and types
+- Memory usage patterns
+
+### Logging
+
+- Structured JSON logs for analysis
+- Error categorization and tracking
+- Performance monitoring
+- Audit trail for operations
+
+## 🤝 Contributing
+
+1. **Code Style**
+
+   - Follow ESLint and Prettier configurations
+   - Use meaningful variable and function names
+   - Add JSDoc comments for functions
+   - Write descriptive commit messages
+
+2. **Testing**
+
+   - Test with different batch sizes
+   - Verify error handling scenarios
+   - Check resume capability
+   - Validate configuration changes
+
+3. **Documentation**
+   - Update README for new features
+   - Add inline comments for complex logic
+   - Document configuration changes
+   - Include examples for new functionality
+
+## 📄 License
+
+ISC License - see LICENSE file for details.
+
+## 🔗 Related Documentation
+
+- [Prisma Documentation](https://www.prisma.io/docs/)
+- [Supabase Documentation](https://supabase.com/docs)
+- [Winston Logging](https://github.com/winstonjs/winston)
+- [ESLint Configuration](https://eslint.org/docs/user-guide/configuring/)
+
+## 📞 Support
+
+For issues and questions:
+
+1. Check the [troubleshooting section](#troubleshooting)
+2. Review log files in the `logs/` directory
+3. Open an issue on GitHub with detailed information
 
 ---
 
-**Need Help?** Check the inline code comments - they contain detailed explanations of how each function works and why specific approaches were chosen.
+**Note**: This application is optimized for Supabase free tier but can be configured for paid tiers or other PostgreSQL providers by adjusting the configuration parameters.

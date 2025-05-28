@@ -1,26 +1,60 @@
 {
   "name": "noc-data-2025",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "NOC (National Occupational Classification) data seeding application for VIU programs and employment outlooks",
+  "main": "src/seed.js",
   "scripts": {
+    "start": "node seed.js",
+    "seed": "node seed.js",
+    "count": "node scripts/count-records.js",
+    "query": "node scripts/query-examples.js",
+    "progress": "node scripts/check-progress.js",
+    "test-db-check": "node scripts/test-database-check.js",
+    "db:generate": "npx prisma generate",
+    "db:migrate": "npx prisma migrate dev",
+    "db:reset": "npx prisma migrate reset",
+    "db:studio": "npx prisma studio",
+    "lint": "eslint src/ scripts/ --ext .js",
+    "lint:fix": "eslint src/ scripts/ --ext .js --fix",
+    "format": "prettier --write \"src/**/*.js\" \"scripts/**/*.js\" \"*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"scripts/**/*.js\" \"*.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rogadev/NOC-data-2025.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "noc",
+    "employment",
+    "data-seeding",
+    "prisma",
+    "supabase",
+    "viu",
+    "occupational-classification"
+  ],
+  "author": "Ryan Roga",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/rogadev/NOC-data-2025/issues"
   },
   "homepage": "https://github.com/rogadev/NOC-data-2025#readme",
-  "description": "",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
   "dependencies": {
-    "@prisma/client": "^6.3.0",
+    "@prisma/client": "^6.8.2",
+    "dotenv": "^16.4.5",
     "express": "^4.21.2",
-    "prisma": "^6.3.0",
-    "xlsx": "^0.18.5"
+    "node-xlsx": "^0.24.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-node": "^11.1.0",
+    "prettier": "^3.2.5",
+    "prisma": "^6.8.2"
   }
 }
