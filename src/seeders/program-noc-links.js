@@ -17,15 +17,15 @@ async function createProgramNocLinks(skipCount = 0) {
   const programs = await prisma.program.findMany({
     where: {
       knownNocGroups: {
-        not: [],
+        hasSome: [],
       },
     },
   })
 
   // Flatten all links into a single array for optimal batch processing
   const allLinks = []
-  programs.forEach(program => {
-    program.knownNocGroups.forEach(nocCode => {
+  programs.forEach((program) => {
+    program.knownNocGroups.forEach((nocCode) => {
       allLinks.push({
         programId: program.id,
         nocCode,
@@ -34,7 +34,7 @@ async function createProgramNocLinks(skipCount = 0) {
     })
   })
 
-  const processor = async link => {
+  const processor = async (link) => {
     // Check if NOC code exists first (this is still needed for foreign key validation)
     const nocExists = await prisma.nocUnitGroup.findUnique({
       where: { nocCode: link.nocCode },
@@ -66,7 +66,7 @@ async function createProgramNocLinks(skipCount = 0) {
             confidence: 1.0,
           },
         }),
-      `Program-NOC Link: ${link.programTitle} - ${link.nocCode}`,
+      `Program-NOC Link: ${link.programTitle} - ${link.nocCode}`
     )
 
     return result ? 'created' : 'error'
@@ -77,7 +77,7 @@ async function createProgramNocLinks(skipCount = 0) {
     50, // Smaller batch size for links due to foreign key lookups
     processor,
     'Program-NOC Links',
-    skipCount,
+    skipCount
   )
 }
 
